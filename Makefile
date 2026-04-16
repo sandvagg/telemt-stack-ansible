@@ -1,6 +1,6 @@
 .PHONY: init check deploy logs clean help
 
-# Настройки
+# Settings
 INVENTORY ?= inventory/hosts.ini
 PLAYBOOK  := playbooks/deploy.yml
 VERBOSE   ?=

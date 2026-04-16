@@ -320,7 +320,7 @@
 
         - name: Deploy Bot requirements.txt
           ansible.builtin.copy:
-            src: "../bot/requirements.txt"  # ← добавь эту задачу!
+            src: "../bot/requirements.txt"
             dest: "{{ bot_base_dir }}/requirements.txt"
             mode: '0644'
           notify: restart containers
