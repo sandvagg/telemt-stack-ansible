@@ -1,4 +1,4 @@
-.PHONY: init check deploy logs clean help
+.PHONY: init check diff deploy deploy-minimal deploy-with-panel deploy-with-bot logs clean help
 
 # Settings
 INVENTORY ?= inventory/hosts.ini
@@ -19,7 +19,8 @@ help:
 	@echo ""
 	@echo "Usage:"
 	@echo "  make init     			# Create secrets.yml from example (local)"
-	@echo "  make check    			# Chekc syntax dry-run"
+	@echo "  make check    			# Check syntax"
+	@echo "  make diff					# Showing config diffs (read-only)"
 	@echo "  make deploy   			# Deploy using all.yml settings (main command)"
 	@echo "  deploy-minimal    	# Telemt only (temporary override)"
 	@echo "  deploy-with-panel 	# Telemt + Panel (temporary override)"
@@ -37,7 +38,9 @@ init:
 
 check:
 	ansible-playbook $(PLAYBOOK) -i $(INVENTORY) --syntax-check
-	ansible-playbook $(PLAYBOOK) -i $(INVENTORY) --check --diff
+
+diff:
+	ansible-playbook $(PLAYBOOK) -i $(INVENTORY) --diff
 
 deploy:
 	@echo "Deploy using all.yml settings"
@@ -47,11 +50,11 @@ deploy-minimal:
 	@echo "Deploy: Telemt only (no panel or bot)"
 	ansible-playbook $(PLAYBOOK) -i $(INVENTORY) -e '{"deploy_panel": false, "deploy_bot": false}' $(VERBOSE)
 
-deploy-with-panel: $(ANSIBLE)
+deploy-with-panel:
 	@echo "Deploy: Telemt + Panel"
 	ansible-playbook $(PLAYBOOK) -i $(INVENTORY) -e '{"deploy_panel": true, "deploy_bot": false}' $(VERBOSE)
 
-deploy-with-bot: $(ANSIBLE)
+deploy-with-bot:
 	@echo "Deploy: Telemt + Bot"
 	ansible-playbook $(PLAYBOOK) -i $(INVENTORY) -e '{"deploy_panel": false, "deploy_bot": true}' $(VERBOSE)
 
