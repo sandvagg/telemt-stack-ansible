@@ -1,0 +1,82 @@
+# === COMPONENTS TO DEPLOY ===
+# telemt is always installed. Other components are enabled using flags.
+deploy_panel: true    #  Panel deployment flag (controls conditional tasks in playbook)
+deploy_bot:   false   # # Bot deployment flag (disable if not using custom bot integration)
+
+# Network
+telemt_prefer_ipv6:       false # IPv6 preference: enable only if your network/Telegram DCs support it reliably
+telemt_fast_mode:         true  #Performance: reduces latency by skipping some checks; disable only for debugging
+telemt_use_middle_proxy:  false
+telemt_ad_tag: ""
+telemt_modes:
+  # "classic" # Unencrypted: fast but detectable; avoid if censorship is a concern
+  # "secure"  # Encrypted, recommended for most deployments
+  - "tls"     # TLS masking: makes traffic look like HTTPS; critical for censorship evasion
+telemt_public_host: "YOUR_PUBLIC_IP_OR_DOMAIN"  # Public endpoint for Telegram client connections (used in tg:// deep links)
+telemt_public_port: 443
+telemt_inner_port:  443
+telemt_announce_ip: "YOUR_PUBLIC_IP"            # IP advertised to clients (critical for NAT/proxy setups, overrides public_host)
+telemt_tls_domain:  "YOUR_FAKE_DOMAIN"          # Fake domain for TLS handshake masking (anti-censorship, must not resolve to real server)
+telemt_mask_port:   443
+telemt_censorship_mask: true
+telemt_censorship_fake_cert_len: 2048
+
+telemt_api: "true" # API toggle: disable if not using panel/bot integration (reduces attack surface)
+telemt_api_address: "0.0.0.0" # API bind address inside container (restricted by whitelist, not exposed publicly)
+telemt_api_port: 9091
+# API whitelist (access only from localhost)
+telemt_api_whitelist: # Network-level API access control (CIDR ranges allowed to connect to telemt_api)
+  - "127.0.0.0/8"
+  - "172.16.0.0/12"
+  - "10.0.0.0/8"
+
+telemt_type: "direct" # Routing mode: "direct" = connect straight to Telegram DCs; other types for proxy chains
+
+# DC Ovverides
+telemt_dc_overrides: # Override default Telegram DC endpoints (use with caution, affects routing logic)
+  "203": "91.105.192.100:443"
+
+panel_web_address: "127.0.0.1" # Panel web UI bind: localhost only (access via reverse proxy or SSH tunnel recommended)
+panel_web_port: 1234
+panel_listen_address: "0.0.0.0" # Panel backend listen: all interfaces (ensure firewall restricts external access)
+panel_listen_port: 1234
+panel_auto_update: false
+
+# Docker
+docker_network_name: "telemt-net" # Isolated Docker network for stack components (prevents cross-container access from other projects)
+docker_network_driver: "bridge"
+
+# Paths
+telemt_base_dir: "/opt/telemt-stack"
+telemt_config_dir: "{{ telemt_base_dir }}/telemt_config"
+panel_config_dir: "{{ telemt_base_dir }}/panel-config"
+bot_base_dir: "{{ telemt_base_dir }}/bot"
+
+# Images
+telemt_image: "whn0thacked/telemt-docker:3.3.28"
+panel_image: "ghcr.io/amirotin/telemt_panel:0.4.9"
+
+# Resources
+telemt_cpu_limit: "0.50"
+telemt_cpu_reservation: "0.25"
+telemt_memory_limit: "256M"
+telemt_memory_reservation: "128M"
+
+panel_cpu_limit: "0.25"
+panel_memory_limit: "128M"
+
+bot_cpu_limit: "0.25"
+bot_memory_limit: "128M"
+
+
+
+# Logging
+log_driver: "json-file"
+log_max_size: "10m"
+log_max_file: "3"
+
+# Security flags
+security_no_new_privileges: true
+security_read_only: true
+security_cap_drop_all: true
+telemt_rust_log: "info"

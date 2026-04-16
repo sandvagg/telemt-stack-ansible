@@ -1,0 +1,14 @@
+# === AUTO-GENERATED — DO NOT EDIT MANUALLY ===
+# Managed by Ansible. Changes will be overwritten.
+
+# Telegram bot
+BOT_TOKEN={{ bot_token }} # Sensitive: bot API token; leaked token = full bot compromise
+BOT_ADMIN_IDS={{ bot_admin_ids | join(',') }} # Security whitelist: only listed Telegram IDs can execute commands
+
+# Telemt API
+TELEMT_API_BASE=http://telemt:{{ telemt_api_port }}/v1 # Internal Docker DNS: 'telemt' resolves to telemt container IP (not exposed externally)
+TELEMT_AUTH_HEADER="{{ telemt_api_auth_header }}"  # API auth: custom header for panel→telemt requests; treat as bearer token
+
+
+# Bot settings
+LOG_LEVEL=INFO

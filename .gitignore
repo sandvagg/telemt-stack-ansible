@@ -1,0 +1,79 @@
+# === SECRETS & LOCAL CONFIGS ===
+secrets/*.yml
+!secrets/*.yml.example
+secrets/*.env
+secrets/*.local
+secrets/*.txt
+
+# === GROUP VARS ===
+group_vars/*.yml
+!group_vars/*.yml.example
+group_vars/*.local.yml
+group_vars/*.local.yaml
+
+# === ENVIRONMENT & DOTFILES ===
+**/.env*
+!.env.example
+
+# === ANSIBLE ===
+inventory/hosts.ini
+inventory/vagrant.ini
+inventory/host_vars/
+*.retry
+.ansible/
+.vault_pass*
+*.log
+
+# === VAGRANT ===
+.vagrant/
+Vagrantfile
+
+# === DOCKER / COMPOSE ===
+docker-compose.override.yml
+compose.override.yml
+compose.*.yml
+
+# === PYTHON ===
+__pycache__/
+*.pyc
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+env/
+venv/
+.venv/
+pip-wheel-metadata/
+
+# === ОС / РЕДАКТОРЫ ===
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+*.swp
+*.swo
+*~
+*.bak
+*.orig
+.project
+.settings/
+.idea/
+.vscode/
+*.iml
+
+# === КЛЮЧИ И СЕРТИФИКАТЫ (локальные) ===
+*.pem
+*.key
+*.crt
+*.p12
+!*.crt.example
+!*.pem.example
+
+
+# === TELEMT-SPECIFIC GENERATED ===
+# Сгенерированные конфиги (если будут рендериться локально)
+generated/
+output/

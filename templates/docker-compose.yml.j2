@@ -1,0 +1,147 @@
+# === AUTO-GENERATED — DO NOT EDIT MANUALLY ===
+# Managed by Ansible. Changes will be overwritten.
+
+networks:
+  telemt-net:
+    name: "{{ docker_network_name }}"
+    driver: "{{ docker_network_driver }}"
+    internal: false # Network must allow outbound Telegram server connections (not fully isolated)
+
+services:
+  # TELEMT CORE
+  telemt:
+    image: "{{ telemt_image }}"
+    container_name: telemt
+    restart: unless-stopped
+    networks:
+      - telemt-net
+
+    volumes:
+      - "{{ telemt_config_dir }}:/etc/telemt"
+    command: ["/etc/telemt/telemt.toml"] # Entry point: telemt reads config from this path
+
+    environment:
+      RUST_LOG: "{{ telemt_rust_log | default('info')}}"
+
+    ports:
+      - "0.0.0.0:{{ telemt_public_port}}:443/tcp" # Public TLS endpoint for Telegram clients (tg:// connections)
+      - "127.0.0.1:{{ telemt_api_port }}:9091/tcp" # API bound to localhost only: internal access via whitelist (security boundary
+
+    security_opt:
+      - "no-new-privileges:{{ security_no_new_privileges | default(true) | lower }}"
+    cap_drop:
+      - ALL
+    #cap_add:
+    #  - NET_BIND_SERVICE
+    read_only: "{{ security_read_only | default(true) | lower }}"
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=16m
+
+    deploy:
+      resources:
+        limits:
+          cpus: "{{ telemt_cpu_limit }}"
+          memory: "{{ telemt_memory_limit }}"
+        reservations:
+          cpus: "{{ telemt_cpu_reservation }}"
+          memory: "{{ telemt_memory_reservation }}"
+
+    ulimits:
+      nofile:
+        soft: 65536 # High file descriptor limit: required for many concurrent Telegram connections
+        hard: 65536
+
+    logging:
+      driver: "{{ log_driver }}"
+      options:
+        max-size: "{{ log_max_size }}"
+        max-file: "{{ log_max_file }}"
+
+{% if deploy_panel | default(true) | bool %}
+  # Telemt panel
+  telemt-panel:
+    image: "{{ panel_image }}"
+    container_name: telemt-panel
+    restart: unless-stopped
+    depends_on:
+      - telemt
+    networks:
+      - telemt-net
+
+    volumes:
+      - "{{ panel_config_dir }}/config.toml:/etc/telemt-panel/config.toml:ro"
+      - "{{ telemt_config_dir }}:/etc/telemt/" # Panel reads telemt config for sync/management
+      - /var/run/docker.sock:/var/run/docker.sock:ro # Docker socket access: required for telemt logs
+
+
+    ports:
+      - "{{ panel_web_address | default('127.0.0.1') }}:{{ panel_web_port | default(1234)}}:{{ panel_listen_port | default(1234) }}"
+
+    security_opt:
+      - "no-new-privileges:{{ security_no_new_privileges | default(true) | lower }}"
+    cap_drop:
+      - ALL
+    read_only: "{{ security_read_only | default(true) | lower }}"
+
+    deploy:
+      resources:
+        limits:
+          cpus: "{{ panel_cpu_limit }}"
+          memory: "{{ panel_memory_limit }}"
+
+    logging:
+      driver: "{{ log_driver }}"
+      options:
+        max-size: "{{ log_max_size }}"
+        max-file: "{{ log_max_file }}"
+{% endif %}
+
+{% if deploy_bot | default(false) | bool %}
+  # Bot
+  telemt-bot:
+    build:
+        context: "{{ bot_base_dir }}"
+        dockerfile: Dockerfile
+    container_name: telemt-bot
+    restart: unless-stopped
+    depends_on:
+      - telemt
+    networks:
+      - telemt-net
+
+    env_file:
+      - "{{ bot_base_dir }}/.env"
+
+    environment:
+      - PYTHONUNBUFFERED=1
+
+    volumes:
+      - "{{ bot_base_dir }}/telemt-bot.py:/app/telemt-bot.py:ro"
+      - "{{ bot_base_dir }}/logs:/app/logs"
+
+    security_opt:
+      - "no-new-privileges:{{ security_no_new_privileges | default(true) | lower }}"
+    cap_drop:
+      - ALL
+    read_only: "{{ security_read_only | default(true) | lower }}"
+
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=16m
+
+    deploy:
+      resources:
+        limits:
+          cpus: "{{ bot_cpu_limit }}"
+          memory: "{{ bot_memory_limit }}"
+
+    logging:
+      driver: "{{ log_driver }}"
+      options:
+        max-size: "{{ log_max_size }}"
+        max-file: "{{ log_max_file }}"
+{% endif %}
+
+volumes:
+  telemt-logs:
+    name: telemt-logs
+    driver: local

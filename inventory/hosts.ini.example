@@ -1,0 +1,28 @@
+# === TELEMT STACK — INVENTORY EXAMPLE ===
+# Copy this file to hosts.ini and fill in your values:
+#   cp inventory/hosts.ini.example inventory/hosts.ini
+#
+
+# ─── Server Group ─────────────────────────────
+[telemt_servers]
+# Format: hostname ansible_host=IP ansible_user=USER [extra_vars]
+# Password auth example (NOT recommended for production):
+# my-vps ansible_host=123.123.123.123 ansible_user=root ansible_password=your_password
+
+# Recommended: SSH key + non-root user with sudo access
+# Security: avoid root login, use key-based auth, restrict SSH port if possible
+my-vps ansible_host=YOUR_SERVER_IP ansible_user=YOUR_SSH_USER ansible_port=22 ansible_ssh_private_key_file=PATH_TO_SSH_KEY
+
+# ─── Group-wide Variables ─────────────────────
+[telemt_servers:vars]
+# Python interpreter auto-detection (ensures Ansible modules work across distros)
+ansible_python_interpreter=auto_silent
+
+# SSH Hardening: use ed25519 keys, accept new host keys on first connect (prevents MITM on fresh deploys)
+# ansible_ssh_private_key_file=~/.ssh/id_ed25519
+# ansible_ssh_common_args='-o StrictHostKeyChecking=accept-new'
+
+# Privilege escalation: run tasks with sudo (required for system-level changes like Docker, firewall)
+ansible_become=true
+ansible_become_method=sudo
+# ansible_become_password=your_sudo_password  # Uncomment if sudo requires password (prefer NOPASSWD for automation)

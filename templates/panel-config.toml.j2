@@ -1,0 +1,18 @@
+# === AUTO-GENERATED — DO NOT EDIT MANUALLY ===
+# Managed by Ansible. Changes will be overwritten.
+
+listen = "{{ panel_listen_address }}:{{ panel_listen_port }}"
+
+[telemt]
+url = "http://telemt:9091"
+auth_header = "{{ telemt_api_auth_header }}"  # API auth: custom header for panel→telemt requests; treat as bearer token/secret
+container_name = "telemt"
+
+[telemt.auto_update]
+enabled = {{ panel_auto_update | default(false) | bool | lower }}
+
+[auth]
+username = "{{ panel_admin_username }}" # Security: avoid default 'admin'; predictable username increases brute-force risk 
+password_hash = "{{ panel_password_hash }}"
+jwt_secret = "{{ panel_jwt_secret }}"
+session_ttl = "24h"

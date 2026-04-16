@@ -1,0 +1,78 @@
+# === AUTO-GENERATED — DO NOT EDIT MANUALLY ===
+# Managed by Ansible. Changes will be overwritten.
+
+[general]
+prefer_ipv6 = {{ telemt_prefer_ipv6 | default(false) | bool | lower }} # IPv6 preference: enable only if your network/Telegram DCs support it reliably
+fast_mode = {{ telemt_fast_mode | default(true) | bool | lower }}      # Performance: reduces latency by skipping some checks; disable only for debugging
+use_middle_proxy = {{ telemt_use_middle_proxy | default(true) | bool | lower }}
+log_level = "normal"
+ad_tag = ""
+
+[general.modes]
+classic = {{ 'true' if 'classic' in (telemt_modes | default([])) else 'false' }}  # Unencrypted: fast but detectable; avoid if censorship is a concern
+secure = {{ 'true' if 'secure' in (telemt_modes | default([])) else 'false' }}    # Encrypted, recommended for most deployments
+tls = {{ 'true' if 'tls' in (telemt_modes | default([])) else 'false' }}          # TLS masking: makes traffic look like HTTPS; critical for censorship evasion
+
+
+[server]
+port = {{ telemt_inner_port | default(443) }} # Internal container port: must match Docker port mapping and client expectations
+listen_addr_ipv4 = "0.0.0.0"                  # Bind to all IPv4 interfaces: required for Docker port forwarding
+listen_addr_ipv6 = "::"                       # Bind to all IPv6 interfaces: enable only if IPv6 is configured
+
+# Listen on multiple interfaces/IPs (overrides listen_addr_*)
+[[server.listeners]]
+ip = "0.0.0.0"
+announce_ip = "{{ telemt_announce_ip }}" # Optional: Public IP for tg:// links
+
+[server.api]
+enabled = {{ telemt_api | default(true) | bool | lower }} # API toggle: disable if not using panel/bot integration (reduces attack surface)
+listen = "{{ telemt_api_address | default('0.0.0.0') }}:{{ telemt_api_port | default(9091) }}" # Security: bind to 127.0.0.1 + Docker network whitelist preferred over 0.0.0.0
+whitelist = [{% for ip in telemt_api_whitelist %}"{{ ip }}"{% if not loop.last %}, {% endif %}{% endfor %}] # Network-level access control: only these CIDR ranges can call API endpoints
+minimal_runtime_enabled = {{ telemt_minimal_runtime_enabled | default(false) | bool | lower }}
+minimal_runtime_cache_ttl_ms = 1000
+
+# Users to show in the startup log (tg:// links)
+[general.links]
+show = [{% for username in telemt_users %}"{{ username }}"{% if not loop.last %}, {% endif %}{% endfor %}] # Operational: which user links to display in logs; doesn't affect access control
+public_host = "{{ telemt_public_host }}"  # Critical: domain/IP used in generated tg:// links; must resolve to your server
+public_port = {{ telemt_public_port | default(443) }} # Client connection port: must match firewall rules and Docker port mapping
+
+# === Timeouts (in seconds) ===
+[timeouts]
+client_handshake = 15
+tg_connect = 10
+client_keepalive = 60
+client_ack = 300
+
+# === Anti-Censorship & Masking ===
+[censorship]
+tls_domain = "{{ telemt_tls_domain }}"
+mask = {{ telemt_censorship_mask | default(true) | bool | lower }} # Enable TLS handshake masking: makes traffic indistinguishable from legitimate HTTPS
+mask_port = {{ telemt_mask_port }} # Port for masked TLS connections: typically 443 to blend with normal HTTPS traffic
+fake_cert_len = {{ telemt_censorship_fake_cert_len }} # Length of fake TLS certificate: 2048 is standard; larger = more realistic but heavier
+
+# === Access Control & Users ===
+[access]
+replay_check_len = 65536
+ignore_time_skew = {{ telemt_ignore_time_skew | default(false) | bool | lower }}
+
+[access.users]
+# format: "username" = "32_hex_chars_secret"
+{% for username, secret in telemt_users.items() %}
+{{ username }} = "{{ secret }}"
+{% endfor %}
+
+# Direct - Default
+[[upstreams]]
+type = "{{ telemt_type }}"
+enabled = true
+weight = 10
+
+
+# === DC Address Overrides ===
+{% if telemt_dc_overrides %}
+[dc_overrides]
+{% for dc, addr in telemt_dc_overrides.items() %}
+"{{ dc }}" = "{{ addr }}"
+{% endfor %}
+{% endif %}

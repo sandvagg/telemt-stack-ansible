@@ -1,0 +1,371 @@
+---
+
+- name: Prepare local secrets
+  hosts: localhost
+  gather_facts: false
+  become: false
+  connection: local
+  vars:
+    secrets_example: "{{ playbook_dir }}/../secrets/secrets.yml.example"
+    secrets_file:    "{{ playbook_dir }}/../secrets/secrets.yml"
+
+  tasks:
+    - name: Ensure secrets.yml exists (copy from example if missing)
+      ansible.builtin.copy:
+        src:  "{{ secrets_example }}"
+        dest: "{{ secrets_file }}"
+        mode: "0600"
+        force: no
+      check_mode: no
+      tags: [secrets, local]
+
+    - name: Read example secrets
+      ansible.builtin.slurp:
+        src: "{{ secrets_example }}"
+      register: _ex_raw
+      check_mode: no
+      tags: [secrets, local]
+
+    - name: Read current secrets
+      ansible.builtin.slurp:
+        src: "{{ secrets_file }}"
+      register: _cur_raw
+      check_mode: no
+      tags: [secrets, local]
+
+    - name: Parse example secrets
+      ansible.builtin.set_fact:
+        _secrets_ex: "{{ _ex_raw.content | b64decode | from_yaml | default({}) }}"
+      check_mode: no
+      tags: [secrets, local]
+
+    - name: Parse current secrets
+      ansible.builtin.set_fact:
+        _secrets_cur: "{{ _cur_raw.content | b64decode | from_yaml | default({}) }}"
+      check_mode: no
+      tags: [secrets, local]
+
+    - name: Merge secrets (example <- current)
+      ansible.builtin.set_fact:
+        _secrets: "{{ _secrets_ex | combine(_secrets_cur, recursive=True) }}"
+      check_mode: no
+      tags: [secrets, local]
+
+    - name: Generate panel_jwt_secret if missing/short
+      set_fact:
+        _secrets: "{{ _secrets | combine(
+          {'panel_jwt_secret': lookup('password', '/dev/null length=64 chars=hexdigits')},
+          recursive=True
+        ) }}"
+      when: (_secrets.panel_jwt_secret | default('') | length ) < 32
+      no_log: yes
+      check_mode: no
+      tags: [secrets, local]
+
+    - name: Generate plain admin password if hash missing/short
+      set_fact:
+        _panel_plain_password: "{{ lookup('password', '/dev/null length=16 chars=ascii_letters,digits') }}"
+      when: (_secrets.panel_password_hash | default('') | length )   < 20
+      no_log: yes
+      check_mode: no
+      tags: [secrets, local]
+
+    - name: Check bcrypt dependencies
+      assert:
+        that:
+          - lookup('pipe', 'python3 -c "import bcrypt" 2>/dev/null && echo ok') == 'ok'
+        fail_msg: "Установи: pip install passlib bcrypt"
+
+    - name: Write bcrypt hash to secrets dict
+      set_fact:
+        _secrets: "{{ _secrets | combine(
+          {'panel_password_hash': (_panel_plain_password | password_hash('bcrypt', rounds=10))},
+          recursive=True
+        )}}"
+      when: _panel_plain_password is defined
+      no_log: yes
+      check_mode: no
+      tags: [secrets, local]
+
+    - name: Prepare telemt_users dict (base)
+      ansible.builtin.set_fact:
+        _telemt_users_updated: "{{ _secrets.telemt_users | default({}) }}"
+      check_mode: no
+
+    - name: Generate telemt_users.* secrets where empty/short
+      ansible.builtin.set_fact:
+        _telemt_users_updated: "{{ _telemt_users_updated | combine({
+          item.key: lookup('password', '/dev/null length=32 chars=hexdigits')
+        }) }}"
+      loop: "{{ (_secrets.telemt_users | default({})) | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      when: (item.value | default('') | length) < 32
+      no_log: yes
+      check_mode: no
+      tags: [secrets, local]
+
+    - name: Put telemt_users back into secrets dict
+      ansible.builtin.set_fact:
+        _secrets: "{{ _secrets | combine({'telemt_users': _telemt_users_updated}, recursive=True) }}"
+      no_log: yes
+      check_mode: no
+      tags: [secrets, local]
+
+    - name: Persist secrets.yml to disk
+      ansible.builtin.copy:
+        dest: "{{ secrets_file }}"
+        content: "{{ _secrets | to_nice_yaml(indent=2, sort_keys=False) }}"
+        mode: "0600"
+      no_log: yes
+      check_mode: no
+      tags: [secrets, local]
+
+    - name: "DISPLAY GENERATED CREDENTIALS"
+      ansible.builtin.debug:
+        msg: |
+          ======================================================================
+          TELEMT PANEL CREDENTIALS GENERATED
+          ======================================================================
+          Login:    {{ _secrets.panel_admin_username | default('admin') }}
+          Password: {{ _panel_plain_password }}
+
+          This password will be saved in panel-credentials.txt.
+          It is hashed in secrets.yml and CANNOT be recovered.
+          ======================================================================
+      when: _panel_plain_password is defined
+      run_once: true
+      changed_when: false
+      tags: [secrets, local, always]
+
+    - name: "Save credentials locally for safekeeping"
+      ansible.builtin.copy:
+        content: |
+          Telemt Panel Credentials
+          ========================
+          Login:    {{ _secrets.panel_admin_username | default('admin') }}
+          Password: {{ _panel_plain_password }}
+        dest: "../secrets/panel-credentials.txt"
+        mode: '0600'
+      when: _panel_plain_password is defined
+      delegate_to: localhost
+      run_once: true
+      changed_when: false
+      tags: [secrets, local, always]
+
+- name: Deploy Telemt Stack
+  hosts: telemt_servers
+  become: yes
+  gather_facts: yes
+
+  vars_files:
+    - "{{ playbook_dir }}/../group_vars/all.yml"
+
+  pre_tasks:
+
+    - name: Load secrets.yml (generated in play 1)
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../secrets/secrets.yml"
+
+    - name: Validate required variables/secrets
+      ansible.builtin.assert:
+        that:
+          - telemt_public_host | default('') not in ["YOUR_PUBLIC_IP_OR_DOMAIN", "changeme"]
+          - not (deploy_bot | default(false) | bool) or (bot_token | default('') != "" and bot_token != "REPLACE_ME_FROM_@BotFather")
+          - not (deploy_bot | default(false) | bool) or ((bot_admin_ids | default([]) | length) > 0)
+          - not (deploy_panel | default(true) | bool) or (panel_password_hash | default('') | length) > 10
+          - not (deploy_panel | default(true) | bool) or (panel_jwt_secret | default('') | length) >= 32
+        fail_msg: |
+          Обязательные параметры не заполнены!
+          1. Отредактируй group_vars/all.yml и secrets/secrets.yml, проверь флаги deploy_panel/deploy_bot.
+          2. Запусти make deploy снова
+      tags: [validate, always]
+
+  tasks:
+    - name: Install prerequisites for Docker
+      ansible.builtin.apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+        state: present
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+      tags: [docker, setup]
+
+    - name: Ensure /etc/apt/keyrings directory exists
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+      when: ansible_os_family == "Debian"
+      tags: [docker, setup]
+
+    - name: Add Docker official GPG key
+      ansible.builtin.shell: |
+        curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        chmod a+r /etc/apt/keyrings/docker.gpg
+      args:
+        creates: /etc/apt/keyrings/docker.gpg
+      when: ansible_os_family == "Debian"
+      tags: [docker, setup]
+
+    - name: Determine Docker repository release
+      ansible.builtin.set_fact:
+        docker_repo_release: "{{ 'bookworm' if ansible_distribution_release in ['trixie', 'sid'] else ansible_distribution_release }}"
+      when: ansible_os_family == "Debian"
+      tags: [docker, setup]
+
+    - name: Get system architecture for Docker repo
+      ansible.builtin.set_fact:
+        docker_arch: "{{ 'amd64' if ansible_architecture == 'x86_64' else 'arm64' if ansible_architecture == 'aarch64' else ansible_architecture }}"
+      when: ansible_os_family == "Debian"
+      tags: [docker, setup]
+
+    - name: Add Docker repository
+      ansible.builtin.copy:
+        content: |
+          deb [arch={{ docker_arch }} signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian {{ docker_repo_release }} stable
+        dest: /etc/apt/sources.list.d/docker.list
+        mode: '0644'
+      when: ansible_os_family == "Debian"
+      register: docker_repo
+      tags: [docker, setup]
+
+    - name: Update apt cache after adding Docker repository
+      ansible.builtin.apt:
+        update_cache: true
+      when: ansible_os_family == "Debian"
+      tags: [docker, setup]
+
+    - name: Install Docker Engine & Compose Plugin
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+      when: ansible_os_family == "Debian"
+      tags: [docker, setup]
+
+    - name: Ensure Docker service is enabled and started
+      ansible.builtin.systemd:
+        name: docker
+        state: started
+        enabled: yes
+      tags: [docker, setup]
+
+    - name: Create base directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - "{{ telemt_base_dir }}"
+        - "{{ telemt_config_dir }}"
+        - "{{ panel_config_dir }}"
+        - "{{ bot_base_dir }}"
+      tags: [setup, config]
+
+    # === RENDER CONFIGS ===
+    - name: Deploy docker-compose.yml
+      ansible.builtin.template:
+        src: "../templates/docker-compose.yml.j2"
+        dest: "{{ telemt_base_dir }}/docker-compose.yml"
+        mode: '0644'
+      notify: restart containers
+      tags: [config, deploy]
+
+    - name: Deploy telemt.toml
+      ansible.builtin.template:
+        src: "../templates/telemt.toml.j2"
+        dest: "{{ telemt_config_dir }}/telemt.toml"
+        mode: '0644'
+      notify: restart containers
+      tags: [config]
+
+    - name: Deploy panel config.toml
+      ansible.builtin.template:
+        src: "../templates/panel-config.toml.j2"
+        dest: "{{ panel_config_dir }}/config.toml"
+        mode: '0644'
+      notify: restart containers
+      no_log: yes
+      when: deploy_panel | default(true) | bool
+      tags: [config]
+
+    - name: Deploy bot .env
+      ansible.builtin.template:
+        src: "../templates/bot-env.j2"
+        dest: "{{ bot_base_dir }}/.env"
+        mode: '0600'
+      notify: restart containers
+      no_log: yes
+      when: deploy_bot | default(false) | bool
+      tags: [config]
+
+    # === DEPLOY BOT FILES ===
+    - name: Deploy Bot files
+      block:
+        - name: Deploy Bot Dockerfile
+          ansible.builtin.copy:
+            src: "../bot/Dockerfile"
+            dest: "{{ bot_base_dir }}/Dockerfile"
+            mode: '0644'
+          notify: restart containers
+
+        - name: Deploy Bot requirements.txt
+          ansible.builtin.copy:
+            src: "../bot/requirements.txt"  # ← добавь эту задачу!
+            dest: "{{ bot_base_dir }}/requirements.txt"
+            mode: '0644'
+          notify: restart containers
+
+        - name: Deploy Bot application code
+          ansible.builtin.copy:
+            src: "../bot/telemt-bot.py"
+            dest: "{{ bot_base_dir }}/telemt-bot.py"
+            mode: '0644'
+          notify: restart containers
+
+        - name: Ensure bot logs directory exists
+          ansible.builtin.file:
+            path: "{{ bot_base_dir }}/logs"
+            state: directory
+            mode: '0755'
+      when: deploy_bot | default(false) | bool
+      no_log: yes
+      tags: [config]
+
+    # === FIREWALL: UFW ===
+    - name: Allow telemt public port through UFW (IPv4)
+      community.general.ufw:
+        rule: allow
+        port: "{{ telemt_public_port }}"
+        proto: tcp
+        direction: in
+        comment: "Telemt MTProto proxy"
+      when: ansible_facts.packages is defined and 'ufw' in ansible_facts.packages
+      tags: [firewall, setup]
+
+    # === DOCKER COMPOSE DEPLOY ===
+    - name: Start Telemt stack
+      community.docker.docker_compose_v2:
+        project_src: "{{ telemt_base_dir }}"
+        state: present
+        build: "policy"
+        pull: missing
+        timeout: 240
+      tags: [deploy]
+
+  handlers:
+    - name: Restart telemt stack
+      community.docker.docker_compose_v2:
+        project_src: "{{ telemt_base_dir }}"
+        state: present
+        recreate: always
+      listen: "restart containers"
