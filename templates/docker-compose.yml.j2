@@ -13,6 +13,7 @@ services:
     image: "{{ telemt_image }}"
     container_name: telemt
     restart: unless-stopped
+    user: "{{ telemt_uid }}:{{ telemt_gid }}"   # Dynamic uid
     networks:
       - telemt-net
 
@@ -57,12 +58,18 @@ services:
         max-size: "{{ log_max_size }}"
         max-file: "{{ log_max_file }}"
 
-{% if deploy_panel | default(true) | bool %}
+
+
+
   # Telemt panel
+{% if deploy_panel | default(true) | bool %}
   telemt-panel:
     image: "{{ panel_image }}"
     container_name: telemt-panel
     restart: unless-stopped
+    user: "{{ telemt_uid }}:{{ telemt_gid }}"   # Dynamic uid
+    group_add:                                  # GID docker group.
+      - "{{ docker_gid }}"                      # Required for access to telemt logs via docker socket
     depends_on:
       - telemt
     networks:
@@ -70,9 +77,8 @@ services:
 
     volumes:
       - "{{ panel_config_dir }}/config.toml:/etc/telemt-panel/config.toml:ro"
-      - "{{ telemt_config_dir }}:/etc/telemt/" # Panel reads telemt config for sync/management
+      - "{{ telemt_config_dir }}:/etc/telemt:rw" # Panel reads telemt config for sync/management
       - /var/run/docker.sock:/var/run/docker.sock:ro # Docker socket access: required for telemt logs
-
 
     ports:
       - "{{ panel_web_address | default('127.0.0.1') }}:{{ panel_web_port | default(1234)}}:{{ panel_listen_port | default(1234) }}"
@@ -82,6 +88,8 @@ services:
     cap_drop:
       - ALL
     read_only: "{{ security_read_only | default(true) | lower }}"
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=16m
 
     deploy:
       resources:
@@ -96,8 +104,11 @@ services:
         max-file: "{{ log_max_file }}"
 {% endif %}
 
+
+
+
+# Bot
 {% if deploy_bot | default(false) | bool %}
-  # Bot
   telemt-bot:
     build:
         context: "{{ bot_base_dir }}"
@@ -117,7 +128,7 @@ services:
 
     volumes:
       - "{{ bot_base_dir }}/telemt-bot.py:/app/telemt-bot.py:ro"
-      - "{{ bot_base_dir }}/logs:/app/logs"
+      - "{{ bot_base_dir }}/logs:/app/logs:rw"
 
     security_opt:
       - "no-new-privileges:{{ security_no_new_privileges | default(true) | lower }}"

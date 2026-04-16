@@ -182,6 +182,7 @@
       tags: [validate, always]
 
   tasks:
+
     - name: Install prerequisites for Docker
       ansible.builtin.apt:
         name:
@@ -259,11 +260,63 @@
         enabled: yes
       tags: [docker, setup]
 
+    - name: Get docker group GID on host
+      shell: "getent group docker | cut -d: -f3"
+      register: _docker_gid_info
+      changed_when: false
+      failed_when: false                # for dry run
+      args:
+        executable: /bin/bash
+      tags: [setup, permissions]
+
+    - name: Set Docker GID fact
+      set_fact:
+        docker_gid: "{{ (_docker_gid_info.stdout | default('999') | trim) | int }}"
+      tags: [setup, permissions]
+
+    - name: Create telemt group with dynamic GID
+      group:
+        name: telemt
+        system: yes
+        state: present
+      register: telemt_group
+      tags: [setup, permissions]
+
+    - name: Create telemt user with dynamic UID
+      user:
+        name: telemt
+        group: telemt
+        system: yes
+        create_home: no
+        shell: /usr/sbin/nologin
+        state: present
+      register: telemt_user
+      tags: [setup, permissions]
+
+    - name: Get telemt group info
+      ansible.builtin.command: id -g telemt
+      register: telemt_group_info
+      tags: [setup, permissions]
+
+    - name: Get telemt user info
+      ansible.builtin.command: id -u telemt
+      register: telemt_user_info
+      tags: [setup, permissions]
+
+    - name: Set UID and GID facts
+      set_fact:
+        telemt_uid: "{{ telemt_user_info.stdout }}"
+        telemt_gid: "{{ telemt_group_info.stdout }}"
+      tags: [setup, permissions]
+
     - name: Create base directories
       ansible.builtin.file:
         path: "{{ item }}"
         state: directory
-        mode: '0755'
+        owner: "{{ telemt_uid }}"
+        group: "{{ telemt_gid}}"
+        mode: '0750'
+        recurse: true
       loop:
         - "{{ telemt_base_dir }}"
         - "{{ telemt_config_dir }}"
