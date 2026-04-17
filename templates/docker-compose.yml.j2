@@ -19,14 +19,14 @@ services:
 
     volumes:
       - "{{ telemt_config_dir }}:/etc/telemt"
-    command: ["/etc/telemt/telemt.toml"] # Entry point: telemt reads config from this path
+    command: ["/etc/telemt/telemt.toml"]        # Entry point: telemt reads config from this path
 
     environment:
       RUST_LOG: "{{ telemt_rust_log | default('info')}}"
 
     ports:
-      - "0.0.0.0:{{ telemt_public_port}}:443/tcp" # Public TLS endpoint for Telegram clients (tg:// connections)
-      - "127.0.0.1:{{ telemt_api_port }}:9091/tcp" # API bound to localhost only: internal access via whitelist (security boundary
+      - "0.0.0.0:{{ telemt_public_port}}:443/tcp"   # Public TLS endpoint for Telegram clients (tg:// connections)
+      - "127.0.0.1:{{ telemt_api_port }}:9091/tcp"  # Host access: localhost only. Container access: handled by 172.16.0.0/12 whitelist
 
     security_opt:
       - "no-new-privileges:{{ security_no_new_privileges | default(true) | lower }}"
@@ -77,8 +77,8 @@ services:
 
     volumes:
       - "{{ panel_config_dir }}/config.toml:/etc/telemt-panel/config.toml:ro"
-      - "{{ telemt_config_dir }}:/etc/telemt:rw" # Panel reads telemt config for sync/management
-      - /var/run/docker.sock:/var/run/docker.sock:ro # Docker socket access: required for telemt logs
+      - "{{ telemt_config_dir }}:/etc/telemt:rw"      # Panel reads telemt config for sync/management
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # Docker socket access: required for telemt logs
 
     ports:
       - "{{ panel_web_address | default('127.0.0.1') }}:{{ panel_web_port | default(1234)}}:{{ panel_listen_port | default(1234) }}"
