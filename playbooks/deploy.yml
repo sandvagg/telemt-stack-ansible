@@ -264,7 +264,6 @@
       shell: "getent group docker | cut -d: -f3"
       register: _docker_gid_info
       changed_when: false
-      failed_when: false                # for dry run
       args:
         executable: /bin/bash
       tags: [setup, permissions]
@@ -296,11 +295,13 @@
     - name: Get telemt group info
       ansible.builtin.command: id -g telemt
       register: telemt_group_info
+      changed_when: false
       tags: [setup, permissions]
 
     - name: Get telemt user info
       ansible.builtin.command: id -u telemt
       register: telemt_user_info
+      changed_when: false
       tags: [setup, permissions]
 
     - name: Set UID and GID facts
@@ -316,7 +317,6 @@
         owner: "{{ telemt_uid }}"
         group: "{{ telemt_gid}}"
         mode: '0750'
-        recurse: true
       loop:
         - "{{ telemt_base_dir }}"
         - "{{ telemt_config_dir }}"
@@ -329,6 +329,8 @@
       ansible.builtin.template:
         src: "../templates/docker-compose.yml.j2"
         dest: "{{ telemt_base_dir }}/docker-compose.yml"
+        owner: telemt
+        group: telemt
         mode: '0644'
       notify: restart containers
       tags: [config, deploy]
