@@ -14,11 +14,13 @@ Automated deployment of **Telemt (MTProto proxy) + Panel + Bot** via Ansible & D
 - [Components](#components)
 - [Upstream](#upstream)
 - [Project Structure](#project-structure)
+- [Security Notes](#security-notes)
 - [Cleanup](#cleanup)
 - [License](#license)
 
 ## Features
 - **Modular deployment**: Deploy only the components you need (core + optional panel/bot)
+- **Flexible authentication**: Set panel password as plain text (auto-hashed) or provide pre-hashed bcrypt
 - **Auto-generated secrets**: JWT, password hashes, and user secrets created on first run if not filled manually
 - **Docker auto-install**: Ansible automatically installs Docker on bare Debian/Ubuntu servers
 
@@ -77,13 +79,35 @@ telemt_public_host: "your.server.ip"    # ← IP or domain for tg:// links
 telemt_tls_domain: "fake.domain.com"    # ← domain for TLS masking (not a real domain!)
 deploy_panel: true                      # ← set to false if you don't need the web panel
 deploy_bot: false                       # ← set to true if you need the Telegram bot
+
+# API Security: Whitelist only Docker internal network
+telemt_api_whitelist:
+  - "172.16.0.0/12"   # Docker default pool (containers can access API)
+  # - "127.0.0.1/32"  # Uncomment for localhost debug access from host
 ```
 
 ### `secrets/secrets.yml`
 ```yaml
-bot_token: "123456789:AAH..."           # ← from @BotFather
-bot_admin_ids:                          # ← your Telegram UID (as integers)
+# === Panel Authentication (Choose ONE method) ===
+
+# Method A: Plain password (recommended)
+# The hash will be auto-generated on first deploy
+panel_password: "MySecurePass123"
+panel_password_hash: ""  # Leave empty for auto-generation
+
+# Method B: Pre-hashed password (advanced)
+# panel_password: ""
+# panel_password_hash: "$2b$10$..."  # bcrypt, rounds=10
+
+# === Other Secrets ===
+bot_token: "123456789:AAH..."           # from @BotFather
+bot_admin_ids:                          # your Telegram UID (as integers)
   - 123456789
+
+# Auto-generated fields (filled on first run if empty):
+panel_jwt_secret: ""
+telemt_users:
+  user1: ""
 # Other fields (panel_jwt_secret, telemt_users.*) are auto-generated on first run if not filled manually
 ```
 
@@ -91,7 +115,7 @@ bot_admin_ids:                          # ← your Telegram UID (as integers)
 
 ### Check & Deploy
 ```bash
-make check    # Syntax check + dry-run (no changes on server)
+make check    # Ansible syntax check only (safe, no remote changes)
 make deploy   # Full deployment based on all.yml settings
 ```
 
@@ -170,8 +194,8 @@ telemt-stack-ansible/
 ├── group_vars/
 │   └── all.yml.example           # Public variables (IPs, ports, flags)
 ├── secrets/
-│   ├── secrets.yml.example       # Secrets template
-│   ├── panel-credentials.txt     # Contains plain password for panel
+│   ├── secrets.yml.example       # Secrets template (with plain+hash docs)
+│   ├── panel-credentials.txt     # Contains plain password for panel (optionally)
 │   └── secrets.yml               # Auto-filled on first run if not filled manually
 ├── bot/                          # Local bot source code
 │   ├── Dockerfile
@@ -183,8 +207,28 @@ telemt-stack-ansible/
 ├── requirements-ansible.txt      # Python dependencies
 ├── Makefile                      # Convenient commands
 ├── ansible.cfg                   # Ansible settings
-└── README.md                     # This file
+└── README.md
 ```
+
+## Security Notes
+
+### API Access Control
+The Telemt API is protected by two layers:
+1. **Network isolation**: API port bound to `127.0.0.1` on host; containers communicate via Docker network.
+2. **Application whitelist**: `telemt_api_whitelist` restricts access to `172.16.0.0/12` (Docker pool).
+
+> To access API from host for debugging, add `"127.0.0.1/32"` to whitelist and use `curl http://127.0.0.1:9091`.
+
+### Access to Service Files
+By default, only the `telemt` user can read service directories. To access logs/configs without `sudo`:
+```bash
+sudo usermod -aG telemt $USER # re-login after that
+```
+
+### Password Management
+- If you set `panel_password` (plain), the hash is auto-generated and stored in `panel_password_hash`.
+- Changing `panel_password` triggers hash regeneration on next deploy.
+- If only `panel_password_hash` is set (no plain), the system operates in "hash-only" mode
 
 ## Cleanup
 
