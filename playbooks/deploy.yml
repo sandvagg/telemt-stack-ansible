@@ -62,10 +62,60 @@
       check_mode: no
       tags: [secrets, local]
 
-    - name: Generate plain admin password if hash missing/short
-      set_fact:
+    # === Panel password management: plain + hash ===
+
+    - name: Validate existing panel_password_hash format (bcrypt)
+      ansible.builtin.set_fact:
+        _panel_hash_valid: "{{ _secrets.panel_password_hash | default('') is match('^\\$2[aby]?\\$[0-9]{2}\\$[./A-Za-z0-9]{53}$') }}"
+      check_mode: no
+      tags: [secrets, local]
+
+    # Case 1: Both missing → generate new plain password
+    - name: Generate new plain password (when both missing)
+      ansible.builtin.set_fact:
         _panel_plain_password: "{{ lookup('password', '/dev/null length=16 chars=ascii_letters,digits') }}"
-      when: (_secrets.panel_password_hash | default('') | length )   < 20
+      when:
+        - (_secrets.panel_password | default('') | length) == 0
+        - not _panel_hash_valid
+      no_log: yes
+      check_mode: no
+      tags: [secrets, local]
+
+    # Case 2: User provided plain password, but hash is missing/invalid - use plain
+    - name: Use user-provided plain password
+      ansible.builtin.set_fact:
+        _panel_plain_password: "{{ _secrets.panel_password }}"
+      when:
+        - (_secrets.panel_password | default('') | length) > 0
+        - not _panel_hash_valid
+      no_log: yes
+      check_mode: no
+      tags: [secrets, local]
+
+    # Case 3: Hash exists and valid, plain missing - keep hash-only mode (plain stays undefined)
+
+    # Generate hash from plain if needed
+    - name: Generate bcrypt hash from plain password
+      ansible.builtin.set_fact:
+        _secrets: "{{ _secrets | combine(
+          {'panel_password_hash': (_panel_plain_password | password_hash('bcrypt', rounds=10))},
+          recursive=True
+        )}}"
+      when:
+        - _panel_plain_password is defined
+        - not _panel_hash_valid
+      no_log: yes
+      check_mode: no
+      tags: [secrets, local]
+
+    # Persist plain password in secrets (if we have it)
+    - name: Ensure panel_password is stored in secrets dict
+      ansible.builtin.set_fact:
+        _secrets: "{{ _secrets | combine(
+          {'panel_password': _panel_plain_password},
+          recursive=True
+        )}}"
+      when: _panel_plain_password is defined
       no_log: yes
       check_mode: no
       tags: [secrets, local]
@@ -74,17 +124,7 @@
       assert:
         that:
           - lookup('pipe', 'python3 -c "import bcrypt" 2>/dev/null && echo ok') == 'ok'
-        fail_msg: "Установи: pip install passlib bcrypt"
-
-    - name: Write bcrypt hash to secrets dict
-      set_fact:
-        _secrets: "{{ _secrets | combine(
-          {'panel_password_hash': (_panel_plain_password | password_hash('bcrypt', rounds=10))},
-          recursive=True
-        )}}"
-      when: _panel_plain_password is defined
-      no_log: yes
-      check_mode: no
+        fail_msg: "Install: pip install passlib bcrypt"
       tags: [secrets, local]
 
     - name: Prepare telemt_users dict (base)
@@ -121,37 +161,42 @@
       check_mode: no
       tags: [secrets, local]
 
-    - name: "DISPLAY GENERATED CREDENTIALS"
+    # === Display credentials ===
+    - name: "DISPLAY PANEL CREDENTIALS"
       ansible.builtin.debug:
         msg: |
           ======================================================================
-          TELEMT PANEL CREDENTIALS GENERATED
+          TELEMT PANEL CREDENTIALS
           ======================================================================
           Login:    {{ _secrets.panel_admin_username | default('admin') }}
-          Password: {{ _panel_plain_password }}
+          Password: {{ _panel_plain_password | default('*** (hash-only mode) ***') }}
 
-          This password will be saved in panel-credentials.txt.
-          It is hashed in secrets.yml and CANNOT be recovered.
+          Both plain password and hash are saved in secrets.yml.
+          Keep this file secure (mode 0600, in .gitignore).
           ======================================================================
-      when: _panel_plain_password is defined
+      when: deploy_panel | default(true) | bool
       run_once: true
       changed_when: false
       tags: [secrets, local, always]
 
-    - name: "Save credentials locally for safekeeping"
-      ansible.builtin.copy:
-        content: |
-          Telemt Panel Credentials
-          ========================
-          Login:    {{ _secrets.panel_admin_username | default('admin') }}
-          Password: {{ _panel_plain_password }}
-        dest: "../secrets/panel-credentials.txt"
-        mode: '0600'
-      when: _panel_plain_password is defined
-      delegate_to: localhost
-      run_once: true
-      changed_when: false
-      tags: [secrets, local, always]
+          # === Optional: backup plain credentials to separate file ===
+    # - name: "Save credentials locally for safekeeping"
+    #   ansible.builtin.copy:
+    #     content: |
+    #       Telemt Panel Credentials
+    #       ========================
+    #       Login:    {{ _secrets.panel_admin_username | default('admin') }}
+    #       Password: {{ _panel_plain_password | default('*** hash-only ***') }}
+    #       Generated: {{ ansible_date_time.iso8601 | default('unknown') }}
+    #     dest: "../secrets/panel-credentials.txt"
+    #     mode: '0600'
+    #   when:
+    #     - deploy_panel | default(true) | bool
+    #     - _panel_plain_password is defined
+    #   delegate_to: localhost
+    #   run_once: true
+    #   changed_when: false
+    #   tags: [secrets, local, always]
 
 - name: Deploy Telemt Stack
   hosts: telemt_servers
@@ -173,12 +218,15 @@
           - telemt_public_host | default('') not in ["YOUR_PUBLIC_IP_OR_DOMAIN", "changeme"]
           - not (deploy_bot | default(false) | bool) or (bot_token | default('') != "" and bot_token != "REPLACE_ME_FROM_@BotFather")
           - not (deploy_bot | default(false) | bool) or ((bot_admin_ids | default([]) | length) > 0)
-          - not (deploy_panel | default(true) | bool) or (panel_password_hash | default('') | length) > 10
+          - not (deploy_panel | default(true) | bool) or (
+              (panel_password | default('') | length) > 0 or
+              (panel_password_hash | default('') | length) > 10
+            )
           - not (deploy_panel | default(true) | bool) or (panel_jwt_secret | default('') | length) >= 32
         fail_msg: |
-          Обязательные параметры не заполнены!
-          1. Отредактируй group_vars/all.yml и secrets/secrets.yml, проверь флаги deploy_panel/deploy_bot.
-          2. Запусти make deploy снова
+          Required parameters are missing!
+          1. Edit group_vars/all.yml and secrets/secrets.yml, check the deploy_panel/deploy_bot flags.
+          2. Run make deploy again.
       tags: [validate, always]
 
   tasks:
