@@ -445,6 +445,14 @@
       tags: [config]
 
     # === FIREWALL: UFW ===
+    - name: Check if UFW is active
+      ansible.builtin.command: ufw status
+      register: ufw_status
+      changed_when: false
+      failed_when: false
+      check_mode: no
+      tags: [firewall, setup]
+
     - name: Allow telemt public port through UFW (IPv4)
       community.general.ufw:
         rule: allow
@@ -452,7 +460,9 @@
         proto: tcp
         direction: in
         comment: "Telemt MTProto proxy"
-      when: ansible_facts.packages is defined and 'ufw' in ansible_facts.packages
+      when:
+        - ufw_status.rc == 0                        # Check thats ufw exists
+        - "'Status: active' in ufw_status.stdout"   # Fw enabled
       tags: [firewall, setup]
 
     # === DOCKER COMPOSE DEPLOY ===
