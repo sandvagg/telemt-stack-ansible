@@ -70,7 +70,7 @@ weight = 10
 
 
 # === DC Address Overrides ===
-{% if telemt_dc_overrides %}
+{% if telemt_dc_overrides is defined and telemt_dc_overrides %}
 [dc_overrides]
 {% for dc, addr in telemt_dc_overrides.items() %}
 "{{ dc }}" = "{{ addr }}"
