@@ -125,6 +125,8 @@ services:
 
     environment:
       - PYTHONUNBUFFERED=1
+      - HTTPS_PROXY={{ bot_https_proxy | default('') }}
+      - HTTP_PROXY={{ bot_http_proxy | default('') }}
 
     volumes:
       - "{{ bot_base_dir }}/telemt-bot.py:/app/telemt-bot.py:ro"

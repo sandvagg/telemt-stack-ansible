@@ -62,6 +62,16 @@ ignore_time_skew = {{ telemt_ignore_time_skew | default(false) | bool | lower }}
 {{ username }} = "{{ secret }}"
 {% endfor %}
 
+[access.user_ad_tags]
+
+[access.user_max_tcp_conns]
+
+[access.user_expirations]
+
+[access.user_data_quota]
+
+[access.user_max_unique_ips]
+
 # Direct - Default
 [[upstreams]]
 type = "{{ telemt_type }}"

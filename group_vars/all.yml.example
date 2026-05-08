@@ -41,6 +41,9 @@ panel_listen_address: "0.0.0.0" # Panel backend listen: all interfaces (ensure f
 panel_listen_port: 1234
 panel_auto_update: false
 
+bot_https_proxy:
+bot_http_proxy:
+
 # Docker
 docker_network_name: "telemt-net" # Isolated Docker network for stack components (prevents cross-container access from other projects)
 docker_network_driver: "bridge"
